@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 空间审美探测器</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #121212;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* 顶部进度条区 */
+        .header {
+            width: 100%;
+            padding: 20px;
+            text-align: center;
+            box-sizing: border-box;
+        }
+        .progress-text {
+            font-size: 14px;
+            font-weight: bold;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        .progress-bar {
+            width: 80%;
+            height: 6px;
+            background-color: #333;
+            border-radius: 3px;
+            margin: 0 auto;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            width: 10%;
+            background-color: #4CAF50;
+            transition: width 0.3s ease;
+        }
+
+        /* 卡片展示区 */
+        .card-container {
+            flex: 1;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+        .card {
+            width: 85%;
+            max-width: 400px;
+            height: 60vh;
+            background-color: #222;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            background-size: cover;
+            background-position: center;
+            transition: transform 0.4s ease, opacity 0.4s ease;
+            position: absolute;
+        }
+
+        /* 底部交互区 */
+        .controls {
+            width: 100%;
+            padding: 30px 0 50px 0;
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+        }
+        .btn {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            border: none;
+            font-size: 28px;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            transition: transform 0.1s ease;
+        }
+        .btn:active {
+            transform: scale(0.9);
+        }
+        .btn-dislike {
+            background-color: #1e1e1e;
+            color: #ff4444;
+            border: 2px solid #ff4444;
+        }
+        .btn-like {
+            background-color: #1e1e1e;
+            color: #4CAF50;
+            border: 2px solid #4CAF50;
+        }
+
+        /* 终局弹窗 */
+        .finale-screen {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #121212;
+            z-index: 100;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .loader {
+            border: 4px solid #333;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <div class="progress-text">审美基因采样中：<span id="current-count">1</span> / <span id="total-count">5</span></div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+        </div>
+    </div>
+
+    <div class="card-container">
+        <div class="card" id="main-card"></div>
+    </div>
+
+    <div class="controls">
+        <button class="btn btn-dislike" onclick="handleSwipe('left')">❌</button>
+        <button class="btn btn-like" onclick="handleSwipe('right')">❤️</button>
+    </div>
+
+    <div class="finale-screen" id="finale-screen">
+        <div class="loader"></div>
+        <h2>采样完成</h2>
+        <p style="color: #aaa; margin-top: 10px;">系统已捕获您的审美偏好。</p>
+        <p style="color: #4CAF50; font-weight: bold; margin-top: 20px;">正在提取最大公约数：<br>["极简", "大平层", "无主灯", "冷色调"]</p>
+        <p style="color: #fff; margin-top: 20px;">正在呼叫大模型生成最终效果图...</p>
+    </div>
+
+    <script>
+        // 模拟阶段一：初始种子池 (使用占位图库模拟室内设计图片)
+        const seedPool = [
+            "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1554995207-c18c203602cb?auto=format&fit=crop&w=800&q=80",
+            "https://images.unsplash.com/photo-1598928506311-c55dd58021cb?auto=format&fit=crop&w=800&q=80"
+        ];
+
+        let currentIndex = 0;
+        const totalCards = seedPool.length;
+        const likedImages = [];
+
+        const cardElement = document.getElementById('main-card');
+        const progressFill = document.getElementById('progress-fill');
+        const currentCountText = document.getElementById('current-count');
+        const totalCountText = document.getElementById('total-count');
+        const finaleScreen = document.getElementById('finale-screen');
+
+        totalCountText.innerText = totalCards;
+
+        // 初始化第一张卡片
+        function updateCard() {
+            if (currentIndex < totalCards) {
+                cardElement.style.backgroundImage = `url('${seedPool[currentIndex]}')`;
+                cardElement.style.transform = 'translateX(0) rotate(0deg)';
+                cardElement.style.opacity = '1';
+                
+                // 更新进度条
+                currentCountText.innerText = currentIndex + 1;
+                progressFill.style.width = `${((currentIndex + 1) / totalCards) * 100}%`;
+            } else {
+                triggerFinale();
+            }
+        }
+
+        // 处理点击/滑动事件
+        function handleSwipe(direction) {
+            if (currentIndex >= totalCards) return;
+
+            if (direction === 'right') {
+                // 记录喜欢的图片数据（阶段三的数据收集）
+                likedImages.push(seedPool[currentIndex]);
+                // 动画：向右飞出
+                cardElement.style.transform = 'translateX(150%) rotate(15deg)';
+            } else {
+                // 动画：向左飞出
+                cardElement.style.transform = 'translateX(-150%) rotate(-15deg)';
+            }
+            
+            cardElement.style.opacity = '0';
+
+            // 等待动画结束后切换下一张
+            setTimeout(() => {
+                currentIndex++;
+                updateCard();
+            }, 300);
+        }
+
+        // 阶段四：触发终局融合
+        function triggerFinale() {
+            document.querySelector('.header').style.display = 'none';
+            document.querySelector('.card-container').style.display = 'none';
+            document.querySelector('.controls').style.display = 'none';
+            finaleScreen.style.display = 'flex';
+            
+            console.log("客户喜欢的图片库：", likedImages);
+            // 现实中，这里会调用后端的 API 发送 likedImages 数组
+        }
+
+        // 启动系统
+        updateCard();
+    </script>
+</body>
+</html>
