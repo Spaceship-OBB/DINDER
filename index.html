@@ -2,8 +2,8 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 空间审美探测器</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI 空间审美探测器 - 滑动版</title>
     <style>
         body {
             margin: 0;
@@ -21,15 +21,17 @@
         /* 顶部进度条区 */
         .header {
             width: 100%;
-            padding: 20px;
+            padding: 40px 20px 20px 20px;
             text-align: center;
             box-sizing: border-box;
+            z-index: 10;
         }
         .progress-text {
             font-size: 14px;
             font-weight: bold;
             color: #888;
             margin-bottom: 8px;
+            letter-spacing: 1px;
         }
         .progress-bar {
             width: 80%;
@@ -41,7 +43,7 @@
         }
         .progress-fill {
             height: 100%;
-            width: 10%;
+            width: 0%;
             background-color: #4CAF50;
             transition: width 0.3s ease;
         }
@@ -55,52 +57,36 @@
             align-items: center;
             position: relative;
         }
+
+        /* 卡片本体样式 */
         .card {
             width: 85%;
             max-width: 400px;
-            height: 60vh;
+            height: 65vh;
             background-color: #222;
             border-radius: 20px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.6);
             background-size: cover;
             background-position: center;
-            transition: transform 0.4s ease, opacity 0.4s ease;
             position: absolute;
+            cursor: grab;
+            /* 禁用移动端的默认滑动行为和长按菜单 */
+            touch-action: none; 
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .card:active {
+            cursor: grabbing;
         }
 
-        /* 底部交互区 */
-        .controls {
-            width: 100%;
-            padding: 30px 0 50px 0;
-            display: flex;
-            justify-content: center;
-            gap: 40px;
-        }
-        .btn {
-            width: 70px;
-            height: 70px;
-            border-radius: 50%;
-            border: none;
-            font-size: 28px;
-            cursor: pointer;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-            transition: transform 0.1s ease;
-        }
-        .btn:active {
-            transform: scale(0.9);
-        }
-        .btn-dislike {
-            background-color: #1e1e1e;
-            color: #ff4444;
-            border: 2px solid #ff4444;
-        }
-        .btn-like {
-            background-color: #1e1e1e;
-            color: #4CAF50;
-            border: 2px solid #4CAF50;
+        /* 操作提示层 */
+        .hint {
+            position: absolute;
+            bottom: 30px;
+            color: #555;
+            font-size: 14px;
+            letter-spacing: 2px;
+            pointer-events: none;
         }
 
         /* 终局弹窗 */
@@ -145,24 +131,20 @@
     </div>
 
     <div class="card-container">
+        <div class="hint">👈 左滑淘汰 &nbsp;&nbsp;|&nbsp;&nbsp; 右滑想要 👉</div>
         <div class="card" id="main-card"></div>
-    </div>
-
-    <div class="controls">
-        <button class="btn btn-dislike" onclick="handleSwipe('left')">❌</button>
-        <button class="btn btn-like" onclick="handleSwipe('right')">❤️</button>
     </div>
 
     <div class="finale-screen" id="finale-screen">
         <div class="loader"></div>
         <h2>采样完成</h2>
         <p style="color: #aaa; margin-top: 10px;">系统已捕获您的审美偏好。</p>
-        <p style="color: #4CAF50; font-weight: bold; margin-top: 20px;">正在提取最大公约数：<br>["极简", "大平层", "无主灯", "冷色调"]</p>
-        <p style="color: #fff; margin-top: 20px;">正在呼叫大模型生成最终效果图...</p>
+        <p style="color: #4CAF50; font-weight: bold; margin-top: 20px; font-size: 18px;">提取最大公约数：<br><br>["极简", "大平层", "无主灯", "冷色调"]</p>
+        <p style="color: #fff; margin-top: 40px; font-size: 14px; color: #888;">正在呼叫大模型生成最终情绪板...</p>
     </div>
 
     <script>
-        // 模拟阶段一：初始种子池 (使用占位图库模拟室内设计图片)
+        // 阶段一：初始种子池
         const seedPool = [
             "https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=800&q=80",
             "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80",
@@ -183,12 +165,97 @@
 
         totalCountText.innerText = totalCards;
 
-        // 初始化第一张卡片
+        // 滑动交互状态变量
+        let isDragging = false;
+        let startX = 0, startY = 0;
+        let currentX = 0, currentY = 0;
+        const SWIPE_THRESHOLD = 100; // 决定滑出卡片的判定距离 (px)
+
+        // 监听鼠标和触摸事件 (Pointer Events 可以同时兼容电脑鼠标和手机触摸)
+        cardElement.addEventListener('pointerdown', startDrag);
+        document.addEventListener('pointermove', drag);
+        document.addEventListener('pointerup', endDrag);
+
+        function startDrag(e) {
+            if (currentIndex >= totalCards) return;
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            
+            // 拖拽时取消动画过渡，做到指尖跟手
+            cardElement.style.transition = 'none';
+            // 强制捕获指针，防止滑动过快时脱离目标
+            cardElement.setPointerCapture(e.pointerId);
+        }
+
+        function drag(e) {
+            if (!isDragging) return;
+            
+            // 计算手指/鼠标移动的偏移量
+            currentX = e.clientX - startX;
+            currentY = e.clientY - startY;
+            
+            // 随着拖拽距离增加，给卡片加上微微倾斜的旋转效果 (更具物理感)
+            const rotate = currentX * 0.05; 
+            
+            cardElement.style.transform = `translate(${currentX}px, ${currentY}px) rotate(${rotate}deg)`;
+        }
+
+        function endDrag(e) {
+            if (!isDragging) return;
+            isDragging = false;
+            
+            // 松手时恢复动画过渡效果
+            cardElement.style.transition = 'transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s ease';
+
+            // 判定是否超过滑动阈值
+            if (currentX > SWIPE_THRESHOLD) {
+                swipeOut('right');
+            } else if (currentX < -SWIPE_THRESHOLD) {
+                swipeOut('left');
+            } else {
+                // 如果没滑过阈值，自动弹回中心
+                cardElement.style.transform = `translate(0px, 0px) rotate(0deg)`;
+            }
+            
+            // 重置偏移量
+            currentX = 0;
+            currentY = 0;
+        }
+
+        function swipeOut(direction) {
+            // 决定卡片飞出的远方坐标
+            const screenWidth = window.innerWidth;
+            const flyOutX = direction === 'right' ? screenWidth : -screenWidth;
+            const rotateOut = direction === 'right' ? 30 : -30;
+
+            cardElement.style.transform = `translate(${flyOutX}px, ${currentY}px) rotate(${rotateOut}deg)`;
+            cardElement.style.opacity = '0';
+
+            // 记录右滑数据
+            if (direction === 'right') {
+                likedImages.push(seedPool[currentIndex]);
+            }
+
+            // 等待卡片飞出动画结束后，刷新下一张
+            setTimeout(() => {
+                currentIndex++;
+                updateCard();
+            }, 300);
+        }
+
         function updateCard() {
             if (currentIndex < totalCards) {
+                // 加载新卡片
+                cardElement.style.transition = 'none'; // 瞬间归位，不要动画
+                cardElement.style.transform = 'translate(0px, 0px) rotate(0deg)';
                 cardElement.style.backgroundImage = `url('${seedPool[currentIndex]}')`;
-                cardElement.style.transform = 'translateX(0) rotate(0deg)';
-                cardElement.style.opacity = '1';
+                
+                // 延迟一点点恢复 opacity，形成新卡片出现的顺滑感
+                setTimeout(() => {
+                    cardElement.style.transition = 'opacity 0.3s ease';
+                    cardElement.style.opacity = '1';
+                }, 50);
                 
                 // 更新进度条
                 currentCountText.innerText = currentIndex + 1;
@@ -198,41 +265,15 @@
             }
         }
 
-        // 处理点击/滑动事件
-        function handleSwipe(direction) {
-            if (currentIndex >= totalCards) return;
-
-            if (direction === 'right') {
-                // 记录喜欢的图片数据（阶段三的数据收集）
-                likedImages.push(seedPool[currentIndex]);
-                // 动画：向右飞出
-                cardElement.style.transform = 'translateX(150%) rotate(15deg)';
-            } else {
-                // 动画：向左飞出
-                cardElement.style.transform = 'translateX(-150%) rotate(-15deg)';
-            }
-            
-            cardElement.style.opacity = '0';
-
-            // 等待动画结束后切换下一张
-            setTimeout(() => {
-                currentIndex++;
-                updateCard();
-            }, 300);
-        }
-
-        // 阶段四：触发终局融合
         function triggerFinale() {
             document.querySelector('.header').style.display = 'none';
             document.querySelector('.card-container').style.display = 'none';
-            document.querySelector('.controls').style.display = 'none';
             finaleScreen.style.display = 'flex';
             
-            console.log("客户喜欢的图片库：", likedImages);
-            // 现实中，这里会调用后端的 API 发送 likedImages 数组
+            console.log("最终成功捕获客户审美的图片库：", likedImages);
         }
 
-        // 启动系统
+        // 初始化运行系统
         updateCard();
     </script>
 </body>
